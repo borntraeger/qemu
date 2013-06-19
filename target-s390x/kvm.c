@@ -72,8 +72,11 @@
 #define PRIV_XSCH                       0x76
 #define PRIV_SQBS                       0x8a
 #define PRIV_EQBS                       0x9c
+#define DIAG_IPL                        0x308
 #define DIAG_KVM_HYPERCALL              0x500
 #define DIAG_KVM_BREAKPOINT             0x501
+
+#define DIAG_IPL_RC_OK_NOT4CONF         0x0102
 
 #define ICPT_INSTRUCTION                0x04
 #define ICPT_WAITPSW                    0x1c
@@ -578,11 +581,54 @@ static int handle_hypercall(S390CPU *cpu, struct kvm_run *run)
     return 0;
 }
 
+static int handle_diag308(S390CPU *cpu, struct kvm_run *run)
+{
+    uint64_t r1, r3, addr, subcode;
+
+    cpu_synchronize_state(CPU(cpu));
+
+    if (cpu->env.psw.mask & PSW_MASK_PSTATE) {
+        enter_pgmcheck(cpu, PGM_PRIVILEGED);
+        return 0;
+    }
+
+    r1 = (run->s390_sieic.ipa & 0x00f0) >> 8;
+    r3 = run->s390_sieic.ipa & 0x000f;
+    addr = cpu->env.regs[r1];
+    subcode = cpu->env.regs[r3];
+
+    if ((subcode & ~0x0ffffULL) || (subcode > 6)) {
+        enter_pgmcheck(cpu, PGM_SPECIFICATION);
+        return 0;
+    }
+
+    switch (subcode) {
+    case 5:
+        if ((r1 & 1) || (addr & 0x0fffULL)) {
+            enter_pgmcheck(cpu, PGM_SPECIFICATION);
+            return 0;
+        }
+        return -1;
+    case 6:
+        if ((r1 & 1) || (addr & 0x0fffULL)) {
+            enter_pgmcheck(cpu, PGM_SPECIFICATION);
+            return 0;
+        }
+        cpu->env.regs[r1+1] = DIAG_IPL_RC_OK_NOT4CONF;
+        return 0;
+    default:
+        return -1;
+    }
+}
+
 static int handle_diag(S390CPU *cpu, struct kvm_run *run, int ipb_code)
 {
     int r = 0;
 
     switch (ipb_code) {
+    case DIAG_IPL:
+        r = handle_diag308(cpu, run);
+        break;
         case DIAG_KVM_HYPERCALL:
             r = handle_hypercall(cpu, run);
             break;

@@ -76,7 +76,7 @@ static void s390_cpu_load_normal(CPUState *s)
 }
 #endif
 
-/* CPUClass::reset() */
+/* S390CPUClass::cpu_reset() */
 static void s390_cpu_reset(CPUState *s)
 {
     S390CPU *cpu = S390_CPU(s);
@@ -87,11 +87,6 @@ static void s390_cpu_reset(CPUState *s)
 
     scc->parent_reset(s);
 
-    memset(env, 0, offsetof(CPUS390XState, breakpoints));
-
-    /* architectured initial values for CR 0 and 14 */
-    env->cregs[0] = CR0_RESET;
-    env->cregs[14] = CR14_RESET;
     /* set halted to 1 to make sure we can add the cpu in
      * s390_ipl_cpu code, where CPUState::halted is set back to 0
      * after incrementing the cpu counter */
@@ -109,6 +104,35 @@ static void s390_cpu_machine_reset_cb(void *opaque)
     cpu_reset(CPU(cpu));
 }
 #endif
+
+/* S390CPUClass::initial_reset() */
+static void s390_cpu_initial_reset(CPUState *s)
+{
+    S390CPU *cpu = S390_CPU(s);
+    CPUS390XState *env = &cpu->env;
+
+    s390_cpu_reset(s);
+    /* initial reset does not touch regs,fregs and aregs */
+    memset(&env->fpc, 0, offsetof(CPUS390XState, breakpoints) -
+                         offsetof(CPUS390XState, fpc));
+
+    /* architectured initial values for CR 0 and 14 */
+    env->cregs[0] = CR0_RESET;
+    env->cregs[14] = CR14_RESET;
+}
+
+/* CPUClass:reset() */
+static void s390_cpu_full_reset(CPUState *s)
+{
+    S390CPU *cpu = S390_CPU(s);
+    CPUS390XState *env = &cpu->env;
+
+    s390_cpu_initial_reset(s);
+    /* also reset regs,aregs and fregs */
+    memset(env, 0, offsetof(CPUS390XState, fpc));
+}
+
+
 
 static void s390_cpu_realizefn(DeviceState *dev, Error **errp)
 {
@@ -183,8 +207,9 @@ static void s390_cpu_class_init(ObjectClass *oc, void *data)
 #if !defined(CONFIG_USER_ONLY)
     scc->load_normal = s390_cpu_load_normal;
 #endif
-    cc->reset = s390_cpu_reset;
-
+    scc->cpu_reset = s390_cpu_reset;
+    scc->initial_cpu_reset = s390_cpu_initial_reset;
+    cc->reset = s390_cpu_full_reset;
     cc->do_interrupt = s390_cpu_do_interrupt;
     cc->dump_state = s390_cpu_dump_state;
     cc->set_pc = s390_cpu_set_pc;

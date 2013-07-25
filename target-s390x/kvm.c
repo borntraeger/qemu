@@ -33,6 +33,7 @@
 #include "sysemu/sysemu.h"
 #include "sysemu/kvm.h"
 #include "cpu.h"
+#include "sysemu/cpus.h"
 #include "sysemu/device_tree.h"
 #include "qapi/qmp/qjson.h"
 #include "monitor/monitor.h"
@@ -581,6 +582,32 @@ static int handle_hypercall(S390CPU *cpu, struct kvm_run *run)
     return 0;
 }
 
+static void cpu_reset_all(void)
+{
+    CPUState *cpu;
+    S390CPUClass *scc;
+
+    for (cpu = first_cpu; cpu; cpu = cpu->next_cpu) {
+        scc = S390_CPU_GET_CLASS(CPU(cpu));
+        scc->cpu_reset(CPU(cpu));
+    }
+}
+
+static int load_normal_reset(S390CPU *cpu)
+{
+    S390CPUClass *scc = S390_CPU_GET_CLASS(cpu);
+
+    pause_all_vcpus();
+    cpu_synchronize_all_states();
+    cpu_reset_all();
+    io_subsystem_reset();
+    scc->initial_cpu_reset(CPU(cpu));
+    scc->load_normal(CPU(cpu));
+    cpu_synchronize_all_post_reset();
+    resume_all_vcpus();
+    return 0;
+}
+
 static int handle_diag308(S390CPU *cpu, struct kvm_run *run)
 {
     uint64_t r1, r3, addr, subcode;
@@ -603,6 +630,8 @@ static int handle_diag308(S390CPU *cpu, struct kvm_run *run)
     }
 
     switch (subcode) {
+    case 1:
+        return load_normal_reset(cpu);
     case 5:
         if ((r1 & 1) || (addr & 0x0fffULL)) {
             enter_pgmcheck(cpu, PGM_SPECIFICATION);

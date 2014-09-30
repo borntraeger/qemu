@@ -13,9 +13,16 @@
 
 #include <assert.h>
 #include "qemu/rfifolock.h"
+#include "config-host.h"
+#ifdef CONFIG_VALGRIND_H
+#include <valgrind/helgrind.h>
+#endif
 
 void rfifolock_init(RFifoLock *r, void (*cb)(void *), void *opaque)
 {
+#ifdef CONFIG_VALGRIND_H
+    ANNOTATE_RWLOCK_CREATE(&r->nesting);
+#endif
     qemu_mutex_init(&r->lock);
     r->head = 0;
     r->tail = 0;
@@ -27,6 +34,9 @@ void rfifolock_init(RFifoLock *r, void (*cb)(void *), void *opaque)
 
 void rfifolock_destroy(RFifoLock *r)
 {
+#ifdef CONFIG_VALGRIND_H
+    ANNOTATE_RWLOCK_DESTROY(&r->nesting);
+#endif
     qemu_cond_destroy(&r->cond);
     qemu_mutex_destroy(&r->lock);
 }
@@ -43,6 +53,7 @@ void rfifolock_destroy(RFifoLock *r)
  */
 void rfifolock_lock(RFifoLock *r)
 {
+    bool locked = false;
     qemu_mutex_lock(&r->lock);
 
     /* Take a ticket */
@@ -58,11 +69,19 @@ void rfifolock_lock(RFifoLock *r)
             }
             qemu_cond_wait(&r->cond, &r->lock);
         }
+        locked = true;
     }
 
     qemu_thread_get_self(&r->owner_thread);
     r->nesting++;
     qemu_mutex_unlock(&r->lock);
+
+    if (locked) {
+    #ifdef CONFIG_VALGRIND_H
+        ANNOTATE_RWLOCK_ACQUIRED(&r->nesting, 1);
+    #endif
+    }
+
 }
 
 void rfifolock_unlock(RFifoLock *r)
@@ -73,6 +92,9 @@ void rfifolock_unlock(RFifoLock *r)
     if (--r->nesting == 0) {
         r->head++;
         qemu_cond_broadcast(&r->cond);
+        #ifdef CONFIG_VALGRIND_H
+        ANNOTATE_RWLOCK_RELEASED(&r->nesting, 1);
+        #endif
     }
     qemu_mutex_unlock(&r->lock);
 }

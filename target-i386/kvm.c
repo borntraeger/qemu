@@ -1074,7 +1074,7 @@ static int kvm_put_xsave(X86CPU *cpu)
 static int kvm_put_xcrs(X86CPU *cpu)
 {
     CPUX86State *env = &cpu->env;
-    struct kvm_xcrs xcrs;
+    struct kvm_xcrs xcrs = {};
 
     if (!kvm_has_xcrs()) {
         return 0;
@@ -1150,7 +1150,7 @@ static int kvm_put_tscdeadline_msr(X86CPU *cpu)
     struct {
         struct kvm_msrs info;
         struct kvm_msr_entry entries[1];
-    } msr_data;
+    } msr_data ={};
     struct kvm_msr_entry *msrs = msr_data.entries;
 
     if (!has_msr_tsc_deadline) {
@@ -1189,7 +1189,7 @@ static int kvm_put_msrs(X86CPU *cpu, int level)
     struct {
         struct kvm_msrs info;
         struct kvm_msr_entry entries[150];
-    } msr_data;
+    } msr_data = {};
     struct kvm_msr_entry *msrs = msr_data.entries;
     int n = 0, i;
 
@@ -1628,6 +1628,7 @@ static int kvm_get_msrs(X86CPU *cpu)
     }
 
     msr_data.info.nmsrs = n;
+    msr_data.info.pad = 0;
     ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_MSRS, &msr_data);
     if (ret < 0) {
         return ret;
@@ -1853,7 +1854,7 @@ static int kvm_put_apic(X86CPU *cpu)
 static int kvm_put_vcpu_events(X86CPU *cpu, int level)
 {
     CPUX86State *env = &cpu->env;
-    struct kvm_vcpu_events events;
+    struct kvm_vcpu_events events={};
 
     if (!kvm_has_vcpu_events()) {
         return 0;

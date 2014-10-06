@@ -32,6 +32,7 @@
 #include "raw-aio.h"
 #include "qapi/util.h"
 
+#include "valgrind/helgrind.h"
 #if defined(__APPLE__) && (__MACH__)
 #include <paths.h>
 #include <sys/param.h>
@@ -717,6 +718,7 @@ static ssize_t handle_aiocb_rw_vector(RawPosixAIOData *aiocb)
                               aiocb->aio_offset);
     } while (len == -1 && errno == EINTR);
 
+    ANNOTATE_HAPPENS_BEFORE(aiocb->bs);
     if (len == -1) {
         return -errno;
     }
@@ -843,6 +845,7 @@ static ssize_t handle_aiocb_rw(RawPosixAIOData *aiocb)
         assert(count == 0);
     }
     qemu_vfree(buf);
+    ANNOTATE_HAPPENS_BEFORE(aiocb->bs);
 
     return nbytes;
 }

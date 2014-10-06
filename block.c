@@ -36,6 +36,7 @@
 #include "qmp-commands.h"
 #include "qemu/timer.h"
 #include "qapi-event.h"
+#include "valgrind/helgrind.h"
 
 #ifdef CONFIG_BSD
 #include <sys/types.h>
@@ -2918,6 +2919,7 @@ int bdrv_pread(BlockDriverState *bs, int64_t offset, void *buf, int bytes)
         return ret;
     }
 
+    ANNOTATE_HAPPENS_AFTER(bs);
     return bytes;
 }
 
@@ -2930,6 +2932,7 @@ int bdrv_pwritev(BlockDriverState *bs, int64_t offset, QEMUIOVector *qiov)
         return ret;
     }
 
+    ANNOTATE_HAPPENS_AFTER(bs);
     return qiov->size;
 }
 
@@ -3123,6 +3126,7 @@ static int coroutine_fn bdrv_aligned_preadv(BlockDriverState *bs,
         } else {
             ret = 0;
         }
+        ANNOTATE_HAPPENS_AFTER(bs);
 
         /* Reading beyond end of file is supposed to produce zeroes */
         if (ret == 0 && total_sectors < sector_num + nb_sectors) {

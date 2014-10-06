@@ -27,6 +27,7 @@
 #include "block/thread-pool.h"
 #include "qemu/main-loop.h"
 #include "qemu/atomic.h"
+#include <valgrind/helgrind.h>
 
 /***********************************************************/
 /* bottom halves (can be seen as timers which expire ASAP) */
@@ -48,6 +49,8 @@ QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
     bh->ctx = ctx;
     bh->cb = cb;
     bh->opaque = opaque;
+    VALGRIND_HG_DISABLE_CHECKING(&bh->scheduled, sizeof(bh->scheduled));
+    VALGRIND_HG_DISABLE_CHECKING(&bh->idle, sizeof(bh->idle));
     qemu_mutex_lock(&ctx->bh_lock);
     bh->next = ctx->first_bh;
     /* Make sure that the members are ready before putting bh into list */
@@ -308,6 +311,7 @@ AioContext *aio_context_new(Error **errp)
     qemu_mutex_init(&ctx->bh_lock);
     rfifolock_init(&ctx->lock, aio_rfifolock_cb, ctx);
     timerlistgroup_init(&ctx->tlg, aio_timerlist_notify, ctx);
+    VALGRIND_HG_DISABLE_CHECKING(&ctx->dispatching, sizeof(ctx->dispatching));
 
     return ctx;
 }

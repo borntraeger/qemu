@@ -22,6 +22,7 @@
 #include "trace.h"
 #include "block/thread-pool.h"
 #include "qemu/main-loop.h"
+#include "valgrind/helgrind.h"
 
 static void do_spawn_thread(ThreadPool *pool);
 
@@ -243,6 +244,8 @@ BlockDriverAIOCB *thread_pool_submit_aio(ThreadPool *pool,
     req->func = func;
     req->arg = arg;
     req->state = THREAD_QUEUED;
+    VALGRIND_HG_DISABLE_CHECKING(&req->state, sizeof(req->state));
+    VALGRIND_HG_DISABLE_CHECKING(&req->ret, sizeof(req->ret));
     req->pool = pool;
 
     QLIST_INSERT_HEAD(&pool->head, req, all);

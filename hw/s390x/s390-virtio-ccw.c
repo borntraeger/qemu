@@ -20,6 +20,7 @@
 #include "hw/s390x/s390_flic.h"
 #include "hw/s390x/ioinst.h"
 #include "hw/s390x/css.h"
+#include "migration/migration.h"
 #include "virtio-ccw.h"
 #include "qemu/config-file.h"
 #include "s390-pci-bus.h"
@@ -440,6 +441,133 @@ static void ccw_machine_2_4_class_options(MachineClass *mc)
     SET_MACHINE_COMPAT(mc, CCW_COMPAT_2_4);
 }
 DEFINE_CCW_MACHINE(2_4, "2.4", false);
+
+#define DEFINE_KVMIBM_MACHINE(suffix, verstr, latest)                         \
+    static void s390_kvmibm_machine_##suffix##_class_init(ObjectClass *oc,    \
+                                                  void *data)                 \
+    {                                                                         \
+        MachineClass *mc = MACHINE_CLASS(oc);                                 \
+        s390_kvmibm_machine_##suffix##_class_options(mc);                     \
+        mc->desc = "KVM for IBM z Systems " verstr;                           \
+        if (latest) {                                                         \
+            mc->is_default = 1;                                               \
+            mc->alias = "s390-ccw-virtio";                                    \
+        }                                                                     \
+    }                                                                         \
+    static void s390_kvmibm_machine_##suffix##_instance_init(Object *obj)     \
+    {                                                                         \
+        MachineState *machine = MACHINE(obj);                                 \
+        s390_kvmibm_machine_##suffix##_instance_options(machine);             \
+    }                                                                         \
+    static const TypeInfo s390_kvmibm_machine_##suffix##_info = {             \
+        .name = MACHINE_TYPE_NAME("s390-ccw-kvmibm-" verstr),                 \
+        .parent = TYPE_S390_CCW_MACHINE,                                      \
+        .class_init = s390_kvmibm_machine_##suffix##_class_init,              \
+        .instance_init = s390_kvmibm_machine_##suffix##_instance_init,        \
+    };                                                                        \
+    static void s390_kvmibm_machine_register_##suffix(void)                   \
+    {                                                                         \
+        type_register_static(&s390_kvmibm_machine_##suffix##_info);           \
+    }                                                                         \
+    type_init(s390_kvmibm_machine_register_##suffix)
+
+
+#define KVMIBM_COMPAT_1_1_0 \
+        CCW_COMPAT_2_4 \
+        {\
+            .driver   = "virtio-blk-ccw",\
+            .property = "any_layout",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-balloon-ccw",\
+            .property = "any_layout",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-serial-ccw",\
+            .property = "any_layout",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-9p-ccw",\
+            .property = "any_layout",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-rng-ccw",\
+            .property = "any_layout",\
+            .value    = "off",\
+        },
+
+#define KVMIBM_COMPAT_1_1_1 \
+        CCW_COMPAT_2_4 \
+        {\
+            .driver   = TYPE_S390_SKEYS,\
+            .property = "migration-enabled",\
+            .value    = "on",\
+        },
+
+#define KVMIBM_COMPAT_1_1_2 \
+        CCW_COMPAT_2_6 \
+        { },
+
+#define KVMIBM_COMPAT_1_1_3 \
+        CCW_COMPAT_2_7 \
+        { },
+
+/* 1.1.3 is based on 2.7 */
+static void s390_kvmibm_machine_1_1_3_instance_options(MachineState *machine)
+{
+    ccw_machine_2_7_instance_options(machine);
+}
+
+static void s390_kvmibm_machine_1_1_3_class_options(MachineClass *mc)
+{
+    ccw_machine_2_7_class_options(mc);
+    SET_MACHINE_COMPAT(mc, KVMIBM_COMPAT_1_1_3);
+}
+DEFINE_KVMIBM_MACHINE(1_1_3, "1.1.3", false);
+
+/* 1.1.2 is based on 2.6 */
+static void s390_kvmibm_machine_1_1_2_instance_options(MachineState *machine)
+{
+    ccw_machine_2_6_instance_options(machine);
+}
+
+static void s390_kvmibm_machine_1_1_2_class_options(MachineClass *mc)
+{
+    ccw_machine_2_6_class_options(mc);
+    SET_MACHINE_COMPAT(mc, KVMIBM_COMPAT_1_1_2);
+}
+DEFINE_KVMIBM_MACHINE(1_1_2, "1.1.2", false);
+
+/* 1.1.1 is based on 2.4 with fixes up to 2.5 */
+static void s390_kvmibm_machine_1_1_1_instance_options(MachineState *machine)
+{
+    ccw_machine_2_4_instance_options(machine);
+}
+
+static void s390_kvmibm_machine_1_1_1_class_options(MachineClass *mc)
+{
+    ccw_machine_2_4_class_options(mc);
+    SET_MACHINE_COMPAT(mc, KVMIBM_COMPAT_1_1_1);
+    mc->max_cpus = 64;
+}
+DEFINE_KVMIBM_MACHINE(1_1_1, "1.1.1", false);
+
+/* 1.1.0 is based on 2.3 with fixes up to 2.4 */
+static void s390_kvmibm_machine_1_1_0_instance_options(MachineState *machine)
+{
+    ccw_machine_2_4_instance_options(machine);
+    savevm_skip_section_footers();
+    global_state_set_optional();
+    savevm_skip_configuration();
+}
+
+static void s390_kvmibm_machine_1_1_0_class_options(MachineClass *mc)
+{
+    ccw_machine_2_4_class_options(mc);
+    SET_MACHINE_COMPAT(mc, KVMIBM_COMPAT_1_1_0);
+    mc->max_cpus = 64;
+}
+DEFINE_KVMIBM_MACHINE(1_1_0, "1.1.0", false);
 
 static void ccw_machine_register_types(void)
 {

@@ -33,6 +33,7 @@
 #include "qemu/timer.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/kvm.h"
+#include "hw/boards.h"
 #include "hw/hw.h"
 #include "sysemu/device_tree.h"
 #include "qapi/qmp/qjson.h"
@@ -136,6 +137,7 @@ static int cap_sync_regs;
 static int cap_async_pf;
 static int cap_mem_op;
 static int cap_s390_irq;
+static int cap_vector;
 static int cap_ri;
 
 static void *legacy_s390_alloc(size_t size, uint64_t *align);
@@ -266,12 +268,61 @@ void kvm_s390_crypto_reset(void)
     }
 }
 
+static int compat_disable_facilities(KVMState *s, __u64 fac_mask[], int len)
+{
+    struct kvm_s390_vm_cpu_processor mach_attrs;
+    struct kvm_s390_vm_cpu_processor cpu_attrs;
+    struct kvm_device_attr attr = {
+        .group = KVM_S390_VM_CPU_MODEL,
+        .attr = KVM_S390_VM_CPU_MACHINE,
+        .addr = (uint64_t)&mach_attrs,
+    };
+    int rc, i;
+
+    /* Make sure the kernel supports these device attributes */
+    rc = kvm_vm_check_attr(s, KVM_S390_VM_CPU_MODEL, KVM_S390_VM_CPU_MACHINE);
+    if (rc) {
+        rc = kvm_vm_check_attr(s, KVM_S390_VM_CPU_MODEL,
+                               KVM_S390_VM_CPU_PROCESSOR);
+    }
+    if (!rc) {
+        error_report("Kvm is missing support for device attributes "
+                     "KVM_S390_VM_CPU_MACHINE or KVM_S390_VM_CPU_PROCESSOR");
+        return rc;
+    }
+
+    rc = kvm_vm_ioctl(s, KVM_GET_DEVICE_ATTR, &attr);
+    if (rc) {
+        error_report("KVM_GET_DEVICE_ATTR failed with rc %d", rc);
+        return  rc;
+    }
+
+    cpu_attrs.cpuid = mach_attrs.cpuid | 0xff00000000000000UL;
+    cpu_attrs.ibc = 0;
+    memcpy(cpu_attrs.fac_list, mach_attrs.fac_list, sizeof(mach_attrs.fac_list));
+    for (i = 0; i < len; i++) {
+        cpu_attrs.fac_list[i] &= ~fac_mask[i];
+    }
+
+    attr.attr = KVM_S390_VM_CPU_PROCESSOR;
+    attr.addr = (uint64_t)&cpu_attrs;
+
+    rc = kvm_vm_ioctl(s, KVM_SET_DEVICE_ATTR, &attr);
+    if (rc) {
+        error_report("KVM_SET_DEVICE_ATTR failed with rc %d", rc);
+    }
+    return rc;
+}
+
 int kvm_arch_init(MachineState *ms, KVMState *s)
 {
+    MachineClass *mc;
     cap_sync_regs = kvm_check_extension(s, KVM_CAP_SYNC_REGS);
     cap_async_pf = kvm_check_extension(s, KVM_CAP_ASYNC_PF);
     cap_mem_op = kvm_check_extension(s, KVM_CAP_S390_MEM_OP);
     cap_s390_irq = kvm_check_extension(s, KVM_CAP_S390_INJECT_IRQ);
+    __u64 fac_mask[2] = {};
+    int rc = 0;
 
     if (!kvm_check_extension(s, KVM_CAP_S390_GMAP)
         || !kvm_check_extension(s, KVM_CAP_S390_COW)) {
@@ -279,7 +330,13 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
     }
 
     kvm_vm_enable_cap(s, KVM_CAP_S390_USER_SIGP, 0);
-    kvm_vm_enable_cap(s, KVM_CAP_S390_VECTOR_REGISTERS, 0);
+    mc = MACHINE_GET_CLASS(OBJECT(ms));
+    /* the 1.1.0 machine had no vector support */
+    if (strcmp(mc->name, "s390-ccw-kvmibm-1.1.0")) {
+        if (kvm_vm_enable_cap(s, KVM_CAP_S390_VECTOR_REGISTERS, 0) == 0) {
+            cap_vector = 1;
+        }
+    }
     kvm_vm_enable_cap(s, KVM_CAP_S390_USER_STSI, 0);
     if (ri_allowed()) {
         if (kvm_vm_enable_cap(s, KVM_CAP_S390_RI, 0) == 0) {
@@ -287,7 +344,21 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
         }
     }
 
-    return 0;
+    /* Turn off unsupported features on machine type 1.1.0 */
+    if (strcmp(mc->name, "s390-ccw-kvmibm-1.1.0") == 0) {
+        /* Mask edat2 and sthyi */
+        fac_mask[1] = 0x22000000000000UL;
+        rc = compat_disable_facilities(s, fac_mask, ARRAY_SIZE(fac_mask));
+    }
+
+    /* Turn off unsupported features on machine type 1.1.1 */
+    if (strcmp(mc->name, "s390-ccw-kvmibm-1.1.1") == 0) {
+        /* Mask sthyi */
+        fac_mask[1] = 0x20000000000000UL;
+        rc = compat_disable_facilities(s, fac_mask, ARRAY_SIZE(fac_mask));
+    }
+
+    return rc;
 }
 
 unsigned long kvm_arch_vcpu_id(CPUState *cpu)
@@ -2189,6 +2260,11 @@ int kvm_s390_assign_subch_ioeventfd(EventNotifier *notifier, uint32_t sch,
 int kvm_s390_get_memslot_count(KVMState *s)
 {
     return kvm_check_extension(s, KVM_CAP_NR_MEMSLOTS);
+}
+
+int kvm_s390_get_vector(void)
+{
+    return cap_vector;
 }
 
 int kvm_s390_get_ri(void)

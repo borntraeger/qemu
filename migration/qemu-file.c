@@ -479,7 +479,7 @@ size_t qemu_get_buffer(QEMUFile *f, uint8_t *buf, size_t size)
  */
 size_t qemu_get_buffer_in_place(QEMUFile *f, uint8_t **buf, size_t size)
 {
-    if (size < IO_BUF_SIZE) {
+    if (size > 0 && size < IO_BUF_SIZE) {
         size_t res;
         uint8_t *src;
 

@@ -3,6 +3,11 @@
 # be added as additional matrix: entries later on
 dist: xenial
 language: c
+arch:
+  - amd64
+  - arm64
+  - ppc64le
+  - s390x
 compiler:
   - gcc
 cache:
